@@ -8,10 +8,10 @@
 units = "in"
 
 [sheet]
-width  = 12.375        # max row width, measured first bleed to last bleed
+width  = 13        # max row width, measured first bleed to last bleed
 height = 0             # 0 = sheet height is the PDF bleed height
-margin_left   = 0
-margin_right  = 0
+margin_left   = 0.3125
+margin_right  = 0.3125
 margin_top    = 0      # added above the bleed when height = 0
 margin_bottom = 0      # added below the bleed when height = 0
 align  = "center"        # left | center | right   (only used when shrink = false)
