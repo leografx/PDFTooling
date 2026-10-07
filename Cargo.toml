@@ -1,0 +1,20 @@
+[package]
+name = "pdf-impose"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.89"
+
+[dependencies]
+anyhow = "1.0.104"
+env_logger = "0.11.11"
+log = "0.4.34"
+lopdf = "0.45.0"
+notify = "8.2.0"
+serde = { version = "1.0.229", features = ["derive"] }
+toml = "1.1.6"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true

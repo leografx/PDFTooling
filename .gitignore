@@ -1,0 +1,5 @@
+/target
+/PDFOut
+/PDFIn/Processed
+/PDFIn/Error
+*.log
