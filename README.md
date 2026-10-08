@@ -12,7 +12,7 @@ re-encoding, so jobs take milliseconds and output quality matches the input.
 ## Build & run (macOS)
 
 ```bash
-# one-time: install Rust
+# one-time: install Rust (needs 1.89 or newer; `rustup update` to upgrade)
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
 cd ~/Projects/PDFTooling
@@ -38,6 +38,51 @@ pdf-impose init PDFIn                                   # just create folder + c
 pdf-impose impose in.pdf out.pdf -c PDFIn/impose.toml   # one-off, no watching
 RUST_LOG=debug pdf-impose PDFIn                         # more logging
 ```
+
+## Build & run (Windows)
+
+### Option A — build on the Windows PC (recommended)
+
+1. Install the **Visual Studio Build Tools** (the free C++ build tools Rust uses for linking):
+   https://visualstudio.microsoft.com/visual-cpp-build-tools/ → tick **"Desktop development with C++"**.
+   Or in PowerShell: `winget install Microsoft.VisualStudio.2022.BuildTools --override "--quiet --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"`
+2. Install Rust: download and run **rustup-init.exe** from https://rustup.rs (accept the defaults),
+   or `winget install Rustlang.Rustup`. Open a **new** terminal and check `cargo --version` (1.89+).
+3. Copy the project folder over (without `target\`), then in PowerShell:
+
+```powershell
+cd C:\PDFTooling
+cargo build --release
+.\target\release\pdf-impose.exe PDFIn        # start watching
+```
+
+The program is a single `pdf-impose.exe`. `.cargo/config.toml` builds the C runtime into it, so you
+can copy just that file to other 64-bit Windows 10/11 PCs without installing anything else.
+(On an ARM Windows PC, the same steps produce a native ARM build.)
+
+### Option B — build the .exe on the Mac (cross-compile)
+
+```bash
+brew install mingw-w64
+rustup target add x86_64-pc-windows-gnu
+cargo build --release --target x86_64-pc-windows-gnu
+# → target/x86_64-pc-windows-gnu/release/pdf-impose.exe
+```
+
+Copy that `.exe` to the Windows PC. It runs exactly like the Option A build.
+
+### Windows notes
+
+- Paths in `impose.toml`: use forward slashes or single quotes, because a backslash inside
+  double quotes is an escape in TOML:
+  `output = "D:/Jobs/PDFOut"` or `output = 'D:\Jobs\PDFOut'`. Network shares work too:
+  `output = '\\server\print\PDFOut'`.
+- Log level in PowerShell: `$env:RUST_LOG="debug"; .\pdf-impose.exe PDFIn`
+  (in cmd: `set RUST_LOG=debug && pdf-impose.exe PDFIn`).
+- Watching a folder on a network share works, but Windows doesn't always send change events for
+  shares; the safety rescan (`folders.poll_ms`) still picks files up.
+- If a PDF is still open in another program (e.g. Acrobat) when the job finishes, Windows won't let it
+  be moved to `Processed`. The output is still written; close the file and move it yourself.
 
 ## How the layout is decided
 
@@ -69,6 +114,8 @@ All lengths in `impose.toml` use `units` (`in`, `mm` or `pt`).
 
 ## Run at login (optional)
 
+### macOS
+
 Save as `~/Library/LaunchAgents/com.leom1.pdf-impose.plist`, then
 `launchctl load ~/Library/LaunchAgents/com.leom1.pdf-impose.plist`:
 
@@ -86,6 +133,16 @@ Save as `~/Library/LaunchAgents/com.leom1.pdf-impose.plist`, then
   <key>StandardErrorPath</key><string>/Users/leom1/Projects/PDFTooling/pdf-impose.log</string>
 </dict></plist>
 ```
+
+### Windows: start automatically at login
+
+Simplest: press **Win+R**, type `shell:startup`, and put a shortcut there with
+Target `C:\PDFTooling\target\release\pdf-impose.exe C:\PDFTooling\PDFIn` and
+Start in `C:\PDFTooling`. Set **Run** to *Minimized* so the log window stays out of the way.
+
+To run it without anyone logged in, create a Task Scheduler task instead
+(Trigger: *At startup*, Action: the same program and argument,
+*Run whether user is logged on or not*).
 
 ## Notes
 
