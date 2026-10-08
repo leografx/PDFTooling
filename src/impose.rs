@@ -351,6 +351,33 @@ pub fn impose_doc(doc: &mut Document, cfg: &Config) -> Result<ImposeReport> {
     let mut kids = Vec::with_capacity(sheets.len());
     let (mut last_w, mut last_h, mut last_row) = (0.0, 0.0, 0.0);
 
+    // Spot-colour copy of the eye mark: Separation colour space + overprint ExtGState.
+    let spot = &cfg.mark.spot;
+    let spot_res: Option<(ObjectId, ObjectId)> = (cfg.mark.enabled && spot.enabled).then(|| {
+        let alt = spot.cmyk.map(|v| Object::Real((v / 100.0) as f32));
+        let tint_fn = dictionary! {
+            "FunctionType" => 2,
+            "Domain" => vec![0.into(), 1.into()],
+            "C0" => vec![0.into(), 0.into(), 0.into(), 0.into()],
+            "C1" => alt.to_vec(),
+            "N" => 1,
+        };
+        let cs = Object::Array(vec![
+            Object::Name(b"Separation".to_vec()),
+            Object::Name(spot.name.as_bytes().to_vec()),
+            Object::Name(b"DeviceCMYK".to_vec()),
+            Object::Dictionary(tint_fn),
+        ]);
+        let cs_id = doc.add_object(cs);
+        let gs_id = doc.add_object(dictionary! {
+            "Type" => "ExtGState",
+            "OP" => spot.overprint,
+            "op" => spot.overprint,
+            "OPM" => 1,
+        });
+        (cs_id, gs_id)
+    });
+
     for seq in &sheets {
         let row_h = seq.iter().map(|&i| infos[i].disp_h).fold(0.0, f64::max);
         let sheet_h = if cfg.sheet.height > 0.0 { cfg.pt(cfg.sheet.height) } else { row_h + mt + mb };
@@ -421,6 +448,14 @@ pub fn impose_doc(doc: &mut Document, cfg: &Config) -> Result<ImposeReport> {
                     "q {} {} {} {} k {} {} {} {} re f Q",
                     fmt(c), fmt(mg), fmt(yl), fmt(kk), fmt(x), fmt(y), fmt(mark_w), fmt(mark_h)
                 );
+                // Duplicate in place, spot colour, overprinting the mark below it.
+                if spot_res.is_some() {
+                    let _ = writeln!(
+                        content,
+                        "q /GSmark gs /CSspot cs {} scn {} {} {} {} re f Q",
+                        fmt(spot.tint / 100.0), fmt(x), fmt(y), fmt(mark_w), fmt(mark_h)
+                    );
+                }
             }
         }
 
@@ -435,7 +470,14 @@ pub fn impose_doc(doc: &mut Document, cfg: &Config) -> Result<ImposeReport> {
             "Parent" => pages_id,
             "MediaBox" => rect_obj(&media),
             "TrimBox" => rect_obj(&media),
-            "Resources" => dictionary! { "XObject" => xobj_dict },
+            "Resources" => {
+                let mut r = dictionary! { "XObject" => xobj_dict };
+                if let Some((cs_id, gs_id)) = spot_res {
+                    r.set("ColorSpace", dictionary! { "CSspot" => cs_id });
+                    r.set("ExtGState", dictionary! { "GSmark" => gs_id });
+                }
+                r
+            },
             "Contents" => content_id,
         };
         kids.push(Object::Reference(doc.add_object(page)));

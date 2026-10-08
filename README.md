@@ -4,7 +4,8 @@ Hot-folder imposition in Rust. Drop a PDF into `PDFIn/` and it is imposed in a
 **single row** (first bleed to last bleed) that is centred on a 12.375" wide sheet
 (configurable). The eye mark is ignored while centring. The sheet height is the
 PDF's bleed height. Then a 0.25" × 0.25" eye mark is placed just outside the left
-bleed of the first copy, with its top edge aligned to the trim top.
+bleed of the first copy, with its top edge aligned to the trim top, and duplicated in place as an
+overprinting spot colour named "die" (shown as magenta).
 
 Pages are reused as vector Form XObjects (via `lopdf`), with no rasterising and no
 re-encoding, so jobs take milliseconds and output quality matches the input.
@@ -52,12 +53,14 @@ RUST_LOG=debug pdf-impose PDFIn                         # more logging
 
 ```powershell
 cd C:\PDFTooling
+$env:RUSTFLAGS="-C target-feature=+crt-static"   # build the C runtime into the .exe
 cargo build --release
 .\target\release\pdf-impose.exe PDFIn        # start watching
 ```
 
-The program is a single `pdf-impose.exe`. `.cargo/config.toml` builds the C runtime into it, so you
-can copy just that file to other 64-bit Windows 10/11 PCs without installing anything else.
+The program is a single `pdf-impose.exe`. Because of the `RUSTFLAGS` line, the C runtime is built
+into it, so you can copy just that file to other 64-bit Windows 10/11 PCs without installing anything
+else. (Skip that line and the PC running it needs the Microsoft Visual C++ Redistributable.)
 (On an ARM Windows PC, the same steps produce a native ARM build.)
 
 ### Option B — build the .exe on the Mac (cross-compile)
@@ -109,6 +112,11 @@ Copy that `.exe` to the Windows PC. It runs exactly like the Option A build.
    If the row fills the whole width there is no room left for the mark, and a warning is logged.
 6. **Eye mark**: placed after the row; right edge touches the first copy's left bleed edge (+`offset_x`),
    top on the trim top (or `anchor = "bleed_top"`), colour set by `cmyk`.
+   A duplicate is placed exactly on top of it in the spot colour **die** (lowercase; spot names are case-sensitive) (a Separation colour,
+   shown as 100% magenta), set to **overprint**, so the black mark still prints underneath and the
+   die line comes out on its own separation. Change or switch it off under `[mark.spot]`
+   (`name`, `tint`, `cmyk` = on-screen colour, `overprint`, `enabled`). In Acrobat, turn on
+   *Output Preview* or *Overprint Preview* to see both marks.
 
 All lengths in `impose.toml` use `units` (`in`, `mm` or `pt`).
 

@@ -163,6 +163,34 @@ pub struct Mark {
     pub reserve_space: bool,
     /// C, M, Y, K in percent.
     pub cmyk: [f64; 4],
+    /// Spot-colour duplicate of the mark, placed on top of it.
+    pub spot: SpotMark,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct SpotMark {
+    pub enabled: bool,
+    /// Separation (spot colour) name, e.g. "die".
+    pub name: String,
+    /// Tint in percent.
+    pub tint: f64,
+    /// How the spot colour looks on screen / in composite proofs (C, M, Y, K percent).
+    pub cmyk: [f64; 4],
+    /// Set the duplicate to overprint (fill overprint on, OPM 1).
+    pub overprint: bool,
+}
+
+impl Default for SpotMark {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            name: "die".into(),
+            tint: 100.0,
+            cmyk: [0.0, 100.0, 0.0, 0.0],
+            overprint: true,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -251,6 +279,7 @@ impl Default for Mark {
             anchor: MarkAnchor::TrimTop,
             reserve_space: false,
             cmyk: [0.0, 0.0, 0.0, 100.0],
+            spot: SpotMark::default(),
         }
     }
 }
@@ -299,6 +328,11 @@ impl Config {
         for c in self.mark.cmyk {
             anyhow::ensure!((0.0..=100.0).contains(&c), "mark.cmyk values must be 0-100");
         }
+        for c in self.mark.spot.cmyk {
+            anyhow::ensure!((0.0..=100.0).contains(&c), "mark.spot.cmyk values must be 0-100");
+        }
+        anyhow::ensure!((0.0..=100.0).contains(&self.mark.spot.tint), "mark.spot.tint must be 0-100");
+        anyhow::ensure!(!self.mark.spot.name.trim().is_empty(), "mark.spot.name is empty");
         anyhow::ensure!(!self.output.file_name.trim().is_empty(), "output.file_name is empty");
         Ok(())
     }
@@ -355,6 +389,13 @@ reserve_space = false      # false = mark is added outside the row after fitting
                            # true  = mark width is taken out of sheet.width first
 cmyk     = [0, 0, 0, 100]  # C, M, Y, K percent
 
+[mark.spot]                # duplicate of the eye mark, in place, on top of it
+enabled   = true
+name      = "die"          # spot colour (separation) name — case-sensitive
+tint      = 100            # percent
+cmyk      = [0, 100, 0, 0] # how the spot shows on screen / in proofs (magenta)
+overprint = true
+
 [folders]                  # relative paths are relative to this hot folder
 output    = "../PDFOut"
 processed = "Processed"
@@ -381,6 +422,8 @@ mod tests {
         assert_eq!(parsed.mark.width, d.mark.width);
         assert_eq!(parsed.layout.order, d.layout.order);
         assert_eq!(parsed.folders.output, d.folders.output);
+        assert_eq!(parsed.mark.spot.name, "die");
+        assert!(parsed.mark.spot.overprint);
         parsed.validate().unwrap();
     }
 
