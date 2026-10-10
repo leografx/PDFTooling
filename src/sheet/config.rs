@@ -200,6 +200,13 @@ pub struct Folders {
     pub stable_ms: u64,
     /// Safety rescan interval (ms).
     pub poll_ms: u64,
+    /// A folder dropped into the hot folder is one job: its PDFs are joined in
+    /// order of their trailing number (_001, _01, _1 …).
+    pub subfolders: bool,
+    /// Loose PDFs named <name>_001, <name>_002 … are joined into one job <name>.
+    pub numbered_files: bool,
+    /// Numbered group: wait this long (ms) after the last member arrives.
+    pub group_settle_ms: u64,
 }
 
 impl Default for Folders {
@@ -211,6 +218,9 @@ impl Default for Folders {
             after_success: AfterAction::Move,
             stable_ms: 1500,
             poll_ms: 3000,
+            subfolders: true,
+            numbered_files: false,
+            group_settle_ms: 5000,
         }
     }
 }
@@ -684,6 +694,10 @@ error     = "Error"
 after_success = "move"     # move | delete | keep
 stable_ms = 1500           # file size must be unchanged this long before processing
 poll_ms   = 3000           # safety rescan interval
+subfolders     = true      # a folder dropped in here = one job: its PDFs joined in number order
+                           #   (name_001, name_002 … / _01 / _1), output named after the folder
+numbered_files = false     # true = loose name_001.pdf, name_002.pdf … here are joined into job "name"
+group_settle_ms = 5000     # numbered files: wait this long after the last one arrives
 "#;
 
 #[cfg(test)]

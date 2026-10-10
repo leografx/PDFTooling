@@ -142,6 +142,9 @@ struct FolderOpts {
     after: AfterAction,
     stable_ms: u64,
     poll_ms: u64,
+    subfolders: bool,
+    numbered_files: bool,
+    group_settle_ms: u64,
 }
 
 impl Engine {
@@ -166,6 +169,9 @@ impl Engine {
                 after: c.folders.after_success,
                 stable_ms: c.folders.stable_ms,
                 poll_ms: c.folders.poll_ms,
+                subfolders: c.folders.subfolders,
+                numbered_files: c.folders.numbered_files,
+                group_settle_ms: c.folders.group_settle_ms,
             },
             Engine::Sheet(j) => FolderOpts {
                 output: j.folders.output.clone(),
@@ -174,6 +180,9 @@ impl Engine {
                 after: j.folders.after_success,
                 stable_ms: j.folders.stable_ms,
                 poll_ms: j.folders.poll_ms,
+                subfolders: j.folders.subfolders,
+                numbered_files: j.folders.numbered_files,
+                group_settle_ms: j.folders.group_settle_ms,
             },
         }
     }
@@ -374,12 +383,81 @@ pub fn init_list(list_path: &Path) -> Result<()> {
 
 // ------------------------------------------------------------------ loop --
 
+/// Size/time fingerprint of a set of files, to tell when it stops changing.
+type Sig = (usize, u64, Option<SystemTime>);
+
+fn sig_of(files: &[(PathBuf, u64, Option<SystemTime>)]) -> Sig {
+    (files.len(), files.iter().map(|f| f.1).sum(), files.iter().filter_map(|f| f.2).max())
+}
+
+/// What a ready job is made of.
+enum Source {
+    File(PathBuf),
+    /// A dropped folder: its PDFs, the folder itself.
+    Dir(PathBuf),
+    /// Loose numbered files sharing a base name.
+    Group(String, Vec<PathBuf>),
+}
+
 struct Folder {
     spec: FolderSpec,
     engine: Engine,
     pending: HashMap<PathBuf, Pending>,
     kept: HashMap<PathBuf, (u64, Option<SystemTime>)>,
+    /// job folders being watched for stability: sig and when it last changed
+    dirs: HashMap<PathBuf, (Sig, Instant)>,
+    kept_dirs: HashMap<PathBuf, Sig>,
+    /// numbered groups: base name → (sig, last change)
+    groups: HashMap<String, (Sig, Instant)>,
     last_cfg_error: String,
+}
+
+fn pdfs_in(dir: &Path) -> Vec<(PathBuf, u64, Option<SystemTime>)> {
+    let mut v = Vec::new();
+    if let Ok(rd) = std::fs::read_dir(dir) {
+        for e in rd.flatten() {
+            let p = e.path();
+            if let Ok(m) = e.metadata() {
+                if m.is_file() && is_candidate(&p) {
+                    v.push((p, m.len(), m.modified().ok()));
+                }
+            }
+        }
+    }
+    v
+}
+
+fn same_dir(a: &Path, b: &Path) -> bool {
+    match (a.canonicalize(), b.canonicalize()) {
+        (Ok(x), Ok(y)) => x == y,
+        _ => a == b,
+    }
+}
+
+/// Move a file or a whole folder into `dir` (non-clashing name).
+fn move_any(src: &Path, dir: &Path) -> Result<PathBuf> {
+    if src.is_dir() {
+        std::fs::create_dir_all(dir)?;
+        let name = src.file_name().and_then(|n| n.to_str()).unwrap_or("job");
+        let dst = unique_path(dir, name);
+        if std::fs::rename(src, &dst).is_err() {
+            copy_dir(src, &dst)?;
+            std::fs::remove_dir_all(src)?;
+        }
+        Ok(dst)
+    } else {
+        move_to(src, dir)
+    }
+}
+
+fn copy_dir(src: &Path, dst: &Path) -> Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for e in std::fs::read_dir(src)?.flatten() {
+        let p = e.path();
+        let t = dst.join(e.file_name());
+        if p.is_dir() { copy_dir(&p, &t)? } else { std::fs::copy(&p, &t).map(|_| ())? }
+    }
+    Ok(())
 }
 
 impl Folder {
@@ -406,46 +484,138 @@ impl Folder {
             spec.kind.name(),
             spec.config.display()
         );
-        Ok(Folder { spec, engine, pending: HashMap::new(), kept: HashMap::new(), last_cfg_error: String::new() })
+        Ok(Folder {
+            spec,
+            engine,
+            pending: HashMap::new(),
+            kept: HashMap::new(),
+            dirs: HashMap::new(),
+            kept_dirs: HashMap::new(),
+            groups: HashMap::new(),
+            last_cfg_error: String::new(),
+        })
     }
 
-    /// Scan the folder and run any settled PDFs.
+    fn is_settling(&self) -> bool {
+        !self.pending.is_empty() || !self.dirs.is_empty() || !self.groups.is_empty()
+    }
+
+    /// Scan the folder and run any settled PDFs, job folders and numbered groups.
     fn tick(&mut self) {
         let hot = self.spec.dir.clone();
         let label = self.spec.label.clone();
-        let stable = Duration::from_millis(self.engine.opts().stable_ms);
+        let opts = self.engine.opts();
+        let stable = Duration::from_millis(opts.stable_ms);
+        let settle = Duration::from_millis(opts.group_settle_ms.max(opts.stable_ms));
         let now = Instant::now();
-        let mut seen = Vec::new();
+
+        // ---- what's in the folder
+        let mut loose: Vec<(PathBuf, u64, Option<SystemTime>)> = Vec::new();
+        let mut subdirs: Vec<PathBuf> = Vec::new();
         if let Ok(rd) = std::fs::read_dir(&hot) {
             for entry in rd.flatten() {
                 let path = entry.path();
                 let Ok(meta) = entry.metadata() else { continue };
-                if !meta.is_file() || !is_candidate(&path) {
-                    continue;
-                }
-                let (len, mtime) = (meta.len(), meta.modified().ok());
-                if self.kept.get(&path) == Some(&(len, mtime)) {
-                    continue; // already done, after_success = keep
-                }
-                seen.push(path.clone());
-                match self.pending.get_mut(&path) {
-                    Some(p) if p.len == len && p.mtime == mtime => {}
-                    Some(p) => { p.len = len; p.mtime = mtime; p.since = now; }
-                    None => {
-                        log::info!("[{label}] detected {}", path.file_name().unwrap().to_string_lossy());
-                        self.pending.insert(path, Pending { len, mtime, since: now });
+                if meta.is_dir() {
+                    let name = entry.file_name().to_string_lossy().to_string();
+                    let special = name.starts_with('.')
+                        || same_dir(&path, &resolve(&hot, &opts.processed))
+                        || same_dir(&path, &resolve(&hot, &opts.error))
+                        || same_dir(&path, &resolve(&hot, &opts.output));
+                    if !special {
+                        subdirs.push(path);
                     }
+                } else if meta.is_file() && is_candidate(&path) {
+                    let (len, mtime) = (meta.len(), meta.modified().ok());
+                    if self.kept.get(&path) != Some(&(len, mtime)) {
+                        loose.push((path, len, mtime));
+                    }
+                }
+            }
+        }
+
+        // ---- numbered groups (opt-in)
+        let mut grouped: HashMap<String, Vec<(PathBuf, u64, Option<SystemTime>)>> = HashMap::new();
+        if opts.numbered_files {
+            for f in &loose {
+                let stem = f.0.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+                if let Some((base, _)) = crate::assemble::split_number(stem, true) {
+                    grouped.entry(base).or_default().push(f.clone());
+                }
+            }
+        }
+        let in_group: Vec<PathBuf> = grouped.values().flatten().map(|f| f.0.clone()).collect();
+        for (base, files) in &grouped {
+            let sig = sig_of(files);
+            match self.groups.get_mut(base) {
+                Some(g) if g.0 == sig => {}
+                Some(g) => *g = (sig, now),
+                None => {
+                    log::info!("[{label}] detected numbered set \"{base}\" ({} file(s) so far)", files.len());
+                    self.groups.insert(base.clone(), (sig, now));
+                }
+            }
+        }
+        self.groups.retain(|b, _| grouped.contains_key(b));
+
+        // ---- single files
+        let mut seen = Vec::new();
+        for (path, len, mtime) in loose.iter().filter(|f| !in_group.contains(&f.0)) {
+            seen.push(path.clone());
+            match self.pending.get_mut(path) {
+                Some(p) if p.len == *len && p.mtime == *mtime => {}
+                Some(p) => { p.len = *len; p.mtime = *mtime; p.since = now; }
+                None => {
+                    log::info!("[{label}] detected {}", path.file_name().unwrap().to_string_lossy());
+                    self.pending.insert(path.clone(), Pending { len: *len, mtime: *mtime, since: now });
                 }
             }
         }
         self.pending.retain(|p, _| seen.contains(p));
 
-        let mut ready: Vec<PathBuf> = self
-            .pending
-            .iter()
-            .filter(|(_, p)| p.len > 0 && now.duration_since(p.since) >= stable)
-            .map(|(k, _)| k.clone())
-            .collect();
+        // ---- job folders
+        let mut live_dirs = Vec::new();
+        if opts.subfolders {
+            for d in &subdirs {
+                let files = pdfs_in(d);
+                if files.is_empty() {
+                    continue;
+                }
+                let sig = sig_of(&files);
+                if self.kept_dirs.get(d) == Some(&sig) {
+                    continue;
+                }
+                live_dirs.push(d.clone());
+                match self.dirs.get_mut(d) {
+                    Some(x) if x.0 == sig => {}
+                    Some(x) => *x = (sig, now),
+                    None => {
+                        log::info!("[{label}] detected job folder {} ({} PDF(s) so far)", d.file_name().unwrap().to_string_lossy(), files.len());
+                        self.dirs.insert(d.clone(), (sig, now));
+                    }
+                }
+            }
+        }
+        self.dirs.retain(|d, _| live_dirs.contains(d));
+
+        // ---- ready?
+        let mut ready: Vec<Source> = Vec::new();
+        for (p, pend) in &self.pending {
+            if pend.len > 0 && now.duration_since(pend.since) >= stable {
+                ready.push(Source::File(p.clone()));
+            }
+        }
+        for (d, (_, since)) in &self.dirs {
+            if now.duration_since(*since) >= stable {
+                ready.push(Source::Dir(d.clone()));
+            }
+        }
+        for (base, (_, since)) in &self.groups {
+            if now.duration_since(*since) >= settle {
+                let files = grouped[base].iter().map(|f| f.0.clone()).collect();
+                ready.push(Source::Group(base.clone(), files));
+            }
+        }
         if ready.is_empty() {
             return;
         }
@@ -463,29 +633,109 @@ impl Folder {
             }
         }
         let opts = self.engine.opts();
+        let err_dir = resolve(&hot, &opts.error);
+        let done_dir = resolve(&hot, &opts.processed);
 
-        ready.sort();
-        for pdf in ready {
-            let p = self.pending.remove(&pdf).unwrap();
-            match process(&self.spec, &pdf, &self.engine) {
-                Ok(()) => match opts.after {
-                    AfterAction::Move => { move_to(&pdf, &resolve(&hot, &opts.processed)).map(|_| ()).unwrap_or_else(|e| log::error!("[{label}] move failed: {e:#}")); }
-                    AfterAction::Delete => { std::fs::remove_file(&pdf).unwrap_or_else(|e| log::error!("[{label}] delete failed: {e}")); }
-                    AfterAction::Keep => { self.kept.insert(pdf.clone(), (p.len, p.mtime)); }
-                },
-                Err(e) => {
-                    log::error!("[{label}] ✘ {}: {e:#}", pdf.file_name().unwrap().to_string_lossy());
-                    let err_dir = resolve(&hot, &opts.error);
-                    match move_to(&pdf, &err_dir) {
-                        Ok(dst) => { let _ = std::fs::write(dst.with_extension("error.txt"), format!("{e:#}\n")); }
-                        Err(me) => {
-                            log::error!("[{label}] could not move to error folder: {me:#}");
-                            self.kept.insert(pdf.clone(), (p.len, p.mtime));
+        ready.sort_by_key(|r| match r {
+            Source::File(p) | Source::Dir(p) => p.to_string_lossy().to_string(),
+            Source::Group(b, _) => b.clone(),
+        });
+        for src in ready {
+            match src {
+                Source::File(pdf) => {
+                    let p = self.pending.remove(&pdf).unwrap();
+                    match process(&self.spec, &pdf, &self.engine) {
+                        Ok(()) => match opts.after {
+                            AfterAction::Move => { move_to(&pdf, &done_dir).map(|_| ()).unwrap_or_else(|e| log::error!("[{label}] move failed: {e:#}")); }
+                            AfterAction::Delete => { std::fs::remove_file(&pdf).unwrap_or_else(|e| log::error!("[{label}] delete failed: {e}")); }
+                            AfterAction::Keep => { self.kept.insert(pdf.clone(), (p.len, p.mtime)); }
+                        },
+                        Err(e) => {
+                            log::error!("[{label}] ✘ {}: {e:#}", pdf.file_name().unwrap().to_string_lossy());
+                            match move_to(&pdf, &err_dir) {
+                                Ok(dst) => { let _ = std::fs::write(dst.with_extension("error.txt"), format!("{e:#}\n")); }
+                                Err(me) => {
+                                    log::error!("[{label}] could not move to error folder: {me:#}");
+                                    self.kept.insert(pdf.clone(), (p.len, p.mtime));
+                                }
+                            }
+                        }
+                    }
+                }
+                Source::Dir(dir) => {
+                    self.dirs.remove(&dir);
+                    let name = dir.file_name().unwrap().to_string_lossy().to_string();
+                    let files: Vec<PathBuf> = pdfs_in(&dir).into_iter().map(|f| f.0).collect();
+                    let result = self.run_assembled(&name, &files);
+                    match result {
+                        Ok(()) => match opts.after {
+                            AfterAction::Move => { move_any(&dir, &done_dir).map(|_| ()).unwrap_or_else(|e| log::error!("[{label}] move failed: {e:#}")); }
+                            AfterAction::Delete => { std::fs::remove_dir_all(&dir).unwrap_or_else(|e| log::error!("[{label}] delete failed: {e}")); }
+                            AfterAction::Keep => { self.kept_dirs.insert(dir.clone(), sig_of(&pdfs_in(&dir))); }
+                        },
+                        Err(e) => {
+                            log::error!("[{label}] ✘ job folder {name}: {e:#}");
+                            match move_any(&dir, &err_dir) {
+                                Ok(dst) => { let _ = std::fs::write(err_dir.join(format!("{}.error.txt", dst.file_name().unwrap().to_string_lossy())), format!("{e:#}\n")); }
+                                Err(me) => {
+                                    log::error!("[{label}] could not move to error folder: {me:#}");
+                                    self.kept_dirs.insert(dir.clone(), sig_of(&pdfs_in(&dir)));
+                                }
+                            }
+                        }
+                    }
+                }
+                Source::Group(base, files) => {
+                    self.groups.remove(&base);
+                    let result = self.run_assembled(&base, &files);
+                    let target = match &result { Ok(()) => &done_dir, Err(_) => &err_dir };
+                    if let Err(e) = &result {
+                        log::error!("[{label}] ✘ numbered set {base}: {e:#}");
+                        std::fs::create_dir_all(&err_dir).ok();
+                        let _ = std::fs::write(unique_path(&err_dir, &format!("{base}.error.txt")), format!("{e:#}\n"));
+                    }
+                    for f in &files {
+                        let r = match (&result, opts.after) {
+                            (Ok(()), AfterAction::Delete) => std::fs::remove_file(f).map_err(anyhow::Error::from),
+                            (Ok(()), AfterAction::Keep) => {
+                                if let Ok(m) = std::fs::metadata(f) {
+                                    self.kept.insert(f.clone(), (m.len(), m.modified().ok()));
+                                }
+                                Ok(())
+                            }
+                            _ => move_to(f, target).map(|_| ()),
+                        };
+                        if let Err(e) = r {
+                            log::error!("[{label}] {}: {e:#}", f.display());
                         }
                     }
                 }
             }
         }
+    }
+
+    /// Join numbered PDFs in order, then impose them as one job called `name`.
+    fn run_assembled(&self, name: &str, files: &[PathBuf]) -> Result<()> {
+        let label = &self.spec.label;
+        let (ordered, warnings) = crate::assemble::order_numbered(files);
+        for w in &warnings {
+            log::warn!("[{label}] {name}: {w}");
+        }
+        let work = self.spec.dir.join(".work");
+        std::fs::create_dir_all(&work)?;
+        let merged = work.join(format!("{name}.pdf"));
+        let pages = crate::assemble::merge_pdfs(&ordered, &merged)?;
+        let list: Vec<String> = ordered.iter().map(|p| p.file_stem().unwrap_or_default().to_string_lossy().to_string()).collect();
+        let shown = if list.len() > 6 {
+            format!("{}, {}, {} … {}", list[0], list[1], list[2], list[list.len() - 1])
+        } else {
+            list.join(", ")
+        };
+        log::info!("[{label}] {name}: joined {} file(s) → {pages} page(s) in order: {shown}", ordered.len());
+        let r = process(&self.spec, &merged, &self.engine);
+        let _ = std::fs::remove_file(&merged);
+        let _ = std::fs::remove_dir(&work);
+        r
     }
 }
 
@@ -558,7 +808,7 @@ fn run(specs: Vec<FolderSpec>, list_path: Option<PathBuf>, default: Kind) -> Res
     let mut last_list_error = String::new();
 
     loop {
-        let settling = folders.iter().any(|f| !f.pending.is_empty());
+        let settling = folders.iter().any(|f| f.is_settling());
         let poll = folders.iter().map(|f| f.engine.opts().poll_ms).min().unwrap_or(3000).max(200);
         let wait = if settling { Duration::from_millis(250) } else { Duration::from_millis(poll) };
         match rx.recv_timeout(wait) {

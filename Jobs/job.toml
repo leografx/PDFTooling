@@ -109,3 +109,7 @@ error     = "Error"
 after_success = "move"     # move | delete | keep
 stable_ms = 1500           # file size must be unchanged this long before processing
 poll_ms   = 3000           # safety rescan interval
+subfolders     = true      # a folder dropped in here = one job: its PDFs joined in number order
+                           #   (name_001, name_002 … / _01 / _1), output named after the folder
+numbered_files = false     # true = loose name_001.pdf, name_002.pdf … here are joined into job "name"
+group_settle_ms = 5000     # numbered files: wait this long after the last one arrives

@@ -76,6 +76,24 @@ enabled = false                     # optional: skip without deleting the entry
   already running keep going.
 - Log lines are tagged with the folder, e.g. `[6RAutoImpose] ✔ card.pdf → card_4up.pdf`.
 
+### Jobs made of numbered files
+
+A job that arrives as several PDFs numbered in sequence is joined in number order and imposed as one
+job. This works in both row and sheet hot folders.
+
+- **Drop a folder** (`[folders] subfolders = true`, the default): copy a folder such as `Booklet_A/`
+  into the hot folder. Every PDF in it is ordered by its trailing number (`_001`, `_01`, `_1`, `-2`
+  and ` 3` all work, and 2 comes before 10). The files are joined page by page and imposed as
+  `Booklet_A`. The whole folder then moves to `Processed/`, or to `Error/` with a `.error.txt`.
+- **Loose numbered files** (`numbered_files = true`, off by default): `Mag_001.pdf`, `Mag_002.pdf` …
+  dropped straight into the hot folder are grouped by name and imposed as `Mag`, once no new member
+  has arrived for `group_settle_ms` (default 5 s).
+- Each file can have one page or many; all pages are kept in order.
+- The log lists the order used and warns about **missing numbers** (e.g. `missing number(s) 5
+  between 1 and 8`), duplicates, and files without a number (those go last).
+- Folders named like the `processed`, `error` and `output` settings, and hidden folders, are never
+  treated as jobs.
+
 ### Row and sheet folders in one list
 
 A hot folder can run either engine. Add `type` to an entry, or leave it out and it is worked out
