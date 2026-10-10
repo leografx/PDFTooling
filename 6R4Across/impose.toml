@@ -1,0 +1,73 @@
+# ------------------------------------------------------------------
+# pdf-impose hot-folder settings
+# This file is re-read for every PDF, so edits apply immediately.
+# Any key you delete falls back to the default shown here.
+# ------------------------------------------------------------------
+
+# Units for every length in this file: "in", "mm" or "pt"
+units = "in"
+
+[sheet]
+width  = 12.375        # sheet width; the row (first bleed -> last bleed) must fit inside
+height = 0             # 0 = sheet height is the PDF bleed height
+margin_left   = 0
+margin_right  = 0
+margin_top    = 0      # added above the bleed when height = 0
+margin_bottom = 0      # added below the bleed when height = 0
+align  = "center"      # left | center | right  row position (mark ignored), when shrink = false
+valign = "center"      # top | center | bottom   (if pages differ in height)
+# false = sheet stays sheet.width wide, row placed by `align`
+# true  = sheet is cut to the row (first bleed -> last bleed) + the eye mark outside it
+shrink_width_to_content = false
+
+[layout]
+orientation      = "portrait"  # auto = as the PDF is | portrait | landscape
+rotate_direction = "cw"    # cw | ccw  (used when orientation forces a turn)
+gap        = 0             # space between bleed boxes (0 = bleed to bleed)
+max_across = 4             # 0 = as many as fit, otherwise a cap
+order      = "grouped"     # grouped = 1,1,2,2  | collated = 1,2,1,2
+remainder  = "fill"        # fill = extra copies of first pages | blank = leave empty
+
+[bleed]
+default_bleed    = 0       # bleed added around TrimBox if the PDF has no BleedBox
+no_trimbox_inset = 0       # if no TrimBox: trim = page box inset by this amount
+
+[mark]                     # eye mark: left of the first copy, outside the bleed
+enabled  = true
+width    = 0.25
+height   = 0.25
+offset_x = 0               # gap between mark and the left bleed edge
+offset_y = 0               # positive moves the mark down from the anchor
+anchor   = "trim_top"      # trim_top | bleed_top
+reserve_space = false      # false = mark is added outside the row after fitting
+                           # true  = mark width is taken out of sheet.width first
+cmyk     = [0, 0, 0, 100]  # C, M, Y, K percent
+overprint = true           # eye mark overprints the white underlay
+
+[mark.spot]                # duplicate of the eye mark, in place, on top of it
+enabled   = true
+name      = "die"          # spot colour (separation) name — case-sensitive
+tint      = 100            # percent
+cmyk      = [0, 100, 0, 0] # how the spot shows on screen / in proofs (magenta)
+overprint = true
+
+[mark.underlay]            # white underlay behind the mark, as wide as the mark
+enabled   = true
+name      = "white"        # spot colour (separation) name — case-sensitive
+tint      = 100            # percent
+cmyk      = [0, 0, 0, 10]  # how the spot shows on screen / in proofs (10% black)
+overprint = false
+extent    = "page"         # page = top edge to bottom edge of the sheet | trim = trim top to trim bottom
+
+[folders]                  # relative paths are relative to this hot folder
+output    = "../PDFOut"
+processed = "Processed"
+error     = "Error"
+after_success = "move"     # move | delete | keep
+stable_ms = 1500           # file size must be unchanged this long before processing
+poll_ms   = 3000           # safety rescan interval
+
+[output]
+file_name = "{name}_{across}up.pdf"   # tokens: {name} {across} {sheets} {pages}
+compress  = true
+object_streams = true      # smaller PDF 1.5 files

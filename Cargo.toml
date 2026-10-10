@@ -3,6 +3,7 @@ name = "pdf-impose"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.89"
+default-run = "pdf-impose"
 
 [dependencies]
 anyhow = "1.0.104"

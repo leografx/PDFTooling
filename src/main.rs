@@ -6,10 +6,12 @@
 //!   pdf-impose [watch] LIST.toml               watch every folder in a watch list
 //!   pdf-impose init [HOT_FOLDER | LIST.toml]   create folder + impose.toml, or a watch list
 //!   pdf-impose impose IN.pdf OUT.pdf [-c CONFIG]   one-off imposition
+//!
+//! The watch list may also contain `type = "sheet"` folders; they are run
+//! with the sheet-impose engine by this same process.
 
-mod config;
-mod impose;
-mod watcher;
+use pdf_impose::row::{config, impose};
+use pdf_impose::watcher;
 
 use anyhow::{bail, Result};
 use config::{Config, CONFIG_FILE_NAME};

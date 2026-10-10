@@ -1,0 +1,111 @@
+# ------------------------------------------------------------------
+# sheet-impose job settings
+# Every key is optional; anything left out uses the default shown here.
+# Any key can also be overridden on the command line:
+#   sheet-impose book.pdf -c job.toml --set binding.style=saddle --set sheet.width=28
+# ------------------------------------------------------------------
+
+units = "in"               # in | mm | pt   (marks.line_width is always in points)
+
+[sheet]                    # press sheet or large-format media
+width  = 19
+height = 13                # 0 = roll: the length grows to fit the job
+margin_left   = 0
+margin_right  = 0
+margin_top    = 0
+margin_bottom = 0
+gripper       = 0      # extra unprintable band on the gripper edge
+gripper_edge  = "bottom"   # bottom | top | left | right
+align         = "center"   # center | gripper  (push the layout against the gripper)
+max_length    = 0          # roll only: start a new sheet beyond this length (0 = no limit)
+
+[product]
+# trim_width  = 8.5        # default: the PDF TrimBox
+# trim_height = 11
+# bleed       = 0.125      # default: the PDF BleedBox (0.125 in when the PDF has none)
+
+[press]
+work_style = "sheetwise"   # single | sheetwise | workturn | worktumble | perfect
+back_flip  = "auto"        # auto | turn | tumble  (auto: tumble for perfect/worktumble, else turn)
+output_back_plate = false  # workturn/worktumble: also write the plate again as the back page
+
+[binding]
+style = "saddle"             # flat | cutstack | saddle | perfect
+edge  = "left"             # left | right | top   (spine / binding edge)
+signature_pages = 0        # 0 = auto (largest of 32/16/8/4 that fits) or 4 | 8 | 16 | 32
+creep = 0                  # creep compensation for the innermost pages (saddle: centre spread,
+                           #   perfect: centre of each signature); 0 = from paper_caliper
+paper_caliper   = 0        # paper thickness, e.g. 0.004 — creep = caliper × (folios − 1) when creep = 0
+creep_method    = "shift"  # shift (move content toward the spine) | scale (shrink toward the spine)
+creep_direction = "in"     # in (toward the spine) | out
+grind = 0                  # perfect: extra space each side of the spine for milling
+lip      = 0               # lip (lap) so the stitcher can open the signature, e.g. 0.375
+lip_side = "none"          # none | low (low folio: lip on the half with the lower pages) | high (high folio)
+blank_pages = "end"        # end | before_back_cover   (where padding pages go)
+
+[layout]
+# gutter    = 0.25         # flat pieces, trim to trim   (default 2 × bleed)
+# fold_gap  = 0.25         # signature head/face folds   (default 2 × bleed; spine is always 0)
+# block_gap = 0.25         # between signatures/blocks   (default 2 × bleed)
+fill   = "repeat"          # repeat | blank  — what goes in spare positions
+gang   = false              # different signatures/pieces may share a sheet
+one_signature_per_sheet = false   # true = 1 folding sheet per signature: each sheet carries one
+                                  # signature, repeated as many times as it fits (saddle/perfect)
+allow_rotation = true      # turn the whole layout 90° if more fits
+mixed_rotation = true      # turn some blocks 90° to fit more (always logged)
+
+[pages]
+# Manual page assignment — overrides the auto page order.
+#   map = [ signature, ... ]
+#   signature = [ front, back ]                one sheet
+#            or [ [front, back], [front, back] ] several sheets
+#   front/back = [ page, page, ... ]           slots in reading order (top-left first)
+#   page = 3 | 0 (blank) | "3@180" (rotated)
+# map = [ [ [4, 1], [2, 3] ] ]
+
+[marks]
+trim   = true
+bleed  = true
+offset = 0.0625            # gap between the bleed and the marks — marks never cross trim or bleed
+length = 0.1875
+line_width = 0.25          # points
+min_length = 0.0625        # marks squeezed shorter than this are left out
+back   = true              # marks on back plates too
+slug   = true              # job / sheet / side info line in the margin
+creep  = true              # dashed creep marks at head/foot where each crept page's face will trim
+
+[marks.signature]          # text mark at the left & right edges, centred: 1-A, 1-B, 2-A, 2-B …
+enabled = true
+text    = "{sheet}-{side}" # tokens: {sheet} {sheets} {sig} (signature numbers on the sheet) {side}
+front   = "A"              # {side} on the front plate (work & turn plates use front+back, e.g. "AB")
+back    = "B"              # {side} on the back plate
+size    = 10               # points
+left    = true
+right   = true
+rotate  = true             # true = runs along the edge, false = horizontal
+inset   = 0                # distance in from the sheet margin (when edge_distance is not set)
+edge_distance = 0.25       # distance from the paper edge to the text; overrides margin + inset
+                           # (delete this line to place the text by margin + inset instead)
+
+[colorbar]
+enabled  = false
+position = "top"           # top | bottom | left | right
+height   = 0.1875
+offset   = 0.0625          # gap between the bar and the layout
+file     = ""              # a PDF to use as the bar (empty = built-in CMYK bar)
+page     = 1
+scale    = "tile"          # tile | stretch | fit | none
+length   = 0               # 0 = full printable length of the sheet (scales with the sheet)
+back     = true
+
+[output]
+file_name = "{name}_{work}_{binding}.pdf"   # tokens: {name} {work} {binding} {sheets}
+object_streams = true
+
+[folders]                  # only used when this file is in a hot folder (relative to that folder)
+output    = "../PDFOut"
+processed = "Processed"
+error     = "Error"
+after_success = "move"     # move | delete | keep
+stable_ms = 1500           # file size must be unchanged this long before processing
+poll_ms   = 3000           # safety rescan interval

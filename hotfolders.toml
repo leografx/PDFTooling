@@ -13,6 +13,18 @@ path = "PDFIn"
 [[hotfolder]]
 path = "6RAutoImpose"
 
+[[hotfolder]]
+path = "6R2Across"
+
+[[hotfolder]]
+path = "6R3Across"
+
+[[hotfolder]]
+path = "6R4Across"
+
+[[hotfolder]]
+path = "Jobs"
+
 # [[hotfolder]]
 # path   = "/Volumes/Jobs/Labels/In"  # absolute paths work too (Windows: use / or '...')
 # config = "shared/labels.toml"       # share one settings file between folders

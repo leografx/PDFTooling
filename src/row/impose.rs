@@ -5,7 +5,7 @@
 //! content is reused as-is (no rasterising, no re-encoding of fonts/images),
 //! which keeps it fast and lossless.
 
-use crate::config::{
+use crate::row::config::{
     Config, UnderlayExtent, HAlign, MarkAnchor, Order, Orientation, Remainder, RotateDirection, VAlign,
 };
 use anyhow::{anyhow, bail, Context, Result};
@@ -588,8 +588,8 @@ mod tests {
 
 fn unit_label(cfg: &Config) -> &'static str {
     match cfg.units {
-        crate::config::Units::In => "\"",
-        crate::config::Units::Mm => "mm",
-        crate::config::Units::Pt => "pt",
+        crate::row::config::Units::In => "\"",
+        crate::row::config::Units::Mm => "mm",
+        crate::row::config::Units::Pt => "pt",
     }
 }
