@@ -1,0 +1,18 @@
+# ------------------------------------------------------------------
+# pdf-impose watch list: every [[hotfolder]] below is watched at once.
+# Relative paths are relative to this file.
+# Edits are picked up while pdf-impose is running (folders added/removed live).
+# ------------------------------------------------------------------
+
+[[hotfolder]]
+path = "PDFIn"
+# config  = "PDFIn/impose.toml"   # optional, default <path>/impose.toml (can be shared)
+# name    = "PDFIn"               # optional label for the log
+# enabled = true                  # false = skip this folder
+
+[[hotfolder]]
+path = "6RAutoImpose"
+
+# [[hotfolder]]
+# path   = "/Volumes/Jobs/Labels/In"  # absolute paths work too (Windows: use / or '...')
+# config = "shared/labels.toml"       # share one settings file between folders

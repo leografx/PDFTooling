@@ -6,7 +6,7 @@
 //! which keeps it fast and lossless.
 
 use crate::config::{
-    Config, HAlign, MarkAnchor, Order, Orientation, Remainder, RotateDirection, VAlign,
+    Config, UnderlayExtent, HAlign, MarkAnchor, Order, Orientation, Remainder, RotateDirection, VAlign,
 };
 use anyhow::{anyhow, bail, Context, Result};
 use lopdf::{dictionary, Dictionary, Document, Object, ObjectId, Stream};
@@ -241,6 +241,24 @@ fn rect_obj(r: &Rect) -> Object {
     ])
 }
 
+/// Add a Separation (spot colour) space whose alternate is the given CMYK percentages.
+fn add_separation(doc: &mut Document, name: &str, cmyk: [f64; 4]) -> ObjectId {
+    let alt = cmyk.map(|v| Object::Real((v / 100.0) as f32));
+    let tint_fn = dictionary! {
+        "FunctionType" => 2,
+        "Domain" => vec![0.into(), 1.into()],
+        "C0" => vec![0.into(), 0.into(), 0.into(), 0.into()],
+        "C1" => alt.to_vec(),
+        "N" => 1,
+    };
+    doc.add_object(Object::Array(vec![
+        Object::Name(b"Separation".to_vec()),
+        Object::Name(name.as_bytes().to_vec()),
+        Object::Name(b"DeviceCMYK".to_vec()),
+        Object::Dictionary(tint_fn),
+    ]))
+}
+
 /// Convert a page into a Form XObject clipped to its bleed box.
 fn page_to_xobject(doc: &mut Document, info: &PageInfo, compress: bool) -> Result<ObjectId> {
     let content = doc.get_page_content(info.id);
@@ -351,31 +369,17 @@ pub fn impose_doc(doc: &mut Document, cfg: &Config) -> Result<ImposeReport> {
     let mut kids = Vec::with_capacity(sheets.len());
     let (mut last_w, mut last_h, mut last_row) = (0.0, 0.0, 0.0);
 
-    // Spot-colour copy of the eye mark: Separation colour space + overprint ExtGState.
+    // Spot colours (Separation colour spaces) and one shared overprint ExtGState.
+    let mark_on = cfg.mark.enabled && mark_w > 0.0 && mark_h > 0.0;
     let spot = &cfg.mark.spot;
-    let spot_res: Option<(ObjectId, ObjectId)> = (cfg.mark.enabled && spot.enabled).then(|| {
-        let alt = spot.cmyk.map(|v| Object::Real((v / 100.0) as f32));
-        let tint_fn = dictionary! {
-            "FunctionType" => 2,
-            "Domain" => vec![0.into(), 1.into()],
-            "C0" => vec![0.into(), 0.into(), 0.into(), 0.into()],
-            "C1" => alt.to_vec(),
-            "N" => 1,
-        };
-        let cs = Object::Array(vec![
-            Object::Name(b"Separation".to_vec()),
-            Object::Name(spot.name.as_bytes().to_vec()),
-            Object::Name(b"DeviceCMYK".to_vec()),
-            Object::Dictionary(tint_fn),
-        ]);
-        let cs_id = doc.add_object(cs);
-        let gs_id = doc.add_object(dictionary! {
-            "Type" => "ExtGState",
-            "OP" => spot.overprint,
-            "op" => spot.overprint,
-            "OPM" => 1,
-        });
-        (cs_id, gs_id)
+    let under = &cfg.mark.underlay;
+    let spot_cs = (mark_on && spot.enabled).then(|| add_separation(doc, &spot.name, spot.cmyk));
+    let under_cs = (mark_on && under.enabled).then(|| add_separation(doc, &under.name, under.cmyk));
+    let gs_op = doc.add_object(dictionary! {
+        "Type" => "ExtGState",
+        "OP" => true,
+        "op" => true,
+        "OPM" => 1,
     });
 
     for seq in &sheets {
@@ -442,17 +446,33 @@ pub fn impose_doc(doc: &mut Document, cfg: &Config) -> Result<ImposeReport> {
                 if x < -EPS {
                     log::warn!("eye mark clipped by sheet edge: {:.4}{} of {:.4} off the left", -x / cfg.pt(1.0), unit_label(cfg), mark_w / cfg.pt(1.0));
                 }
+                // 1. White underlay: mark width; sheet top -> sheet bottom (or trim -> trim).
+                if under_cs.is_some() {
+                    let (uy, uh) = match under.extent {
+                        UnderlayExtent::Page => (0.0, sheet_h),
+                        UnderlayExtent::Trim => (trim.y0, trim.h()),
+                    };
+                    let _ = writeln!(
+                        content,
+                        "q {}/CSunder cs {} scn {} {} {} {} re f Q",
+                        if under.overprint { "/GSop gs " } else { "" },
+                        fmt(under.tint / 100.0), fmt(x), fmt(uy), fmt(mark_w), fmt(uh)
+                    );
+                }
+                // 2. Eye mark (process colour), overprinting the underlay.
                 let [c, mg, yl, kk] = cfg.mark.cmyk.map(|v| v / 100.0);
                 let _ = writeln!(
                     content,
-                    "q {} {} {} {} k {} {} {} {} re f Q",
+                    "q {}{} {} {} {} k {} {} {} {} re f Q",
+                    if cfg.mark.overprint { "/GSop gs " } else { "" },
                     fmt(c), fmt(mg), fmt(yl), fmt(kk), fmt(x), fmt(y), fmt(mark_w), fmt(mark_h)
                 );
-                // Duplicate in place, spot colour, overprinting the mark below it.
-                if spot_res.is_some() {
+                // 3. Duplicate in place in the die spot colour, overprinting.
+                if spot_cs.is_some() {
                     let _ = writeln!(
                         content,
-                        "q /GSmark gs /CSspot cs {} scn {} {} {} {} re f Q",
+                        "q {}/CSspot cs {} scn {} {} {} {} re f Q",
+                        if spot.overprint { "/GSop gs " } else { "" },
                         fmt(spot.tint / 100.0), fmt(x), fmt(y), fmt(mark_w), fmt(mark_h)
                     );
                 }
@@ -472,9 +492,12 @@ pub fn impose_doc(doc: &mut Document, cfg: &Config) -> Result<ImposeReport> {
             "TrimBox" => rect_obj(&media),
             "Resources" => {
                 let mut r = dictionary! { "XObject" => xobj_dict };
-                if let Some((cs_id, gs_id)) = spot_res {
-                    r.set("ColorSpace", dictionary! { "CSspot" => cs_id });
-                    r.set("ExtGState", dictionary! { "GSmark" => gs_id });
+                if mark_on {
+                    let mut cs = Dictionary::new();
+                    if let Some(id) = spot_cs { cs.set("CSspot", id); }
+                    if let Some(id) = under_cs { cs.set("CSunder", id); }
+                    if !cs.is_empty() { r.set("ColorSpace", cs); }
+                    r.set("ExtGState", dictionary! { "GSop" => gs_op });
                 }
                 r
             },

@@ -163,8 +163,46 @@ pub struct Mark {
     pub reserve_space: bool,
     /// C, M, Y, K in percent.
     pub cmyk: [f64; 4],
+    /// Set the process-colour eye mark to overprint (so it doesn't knock out the underlay).
+    pub overprint: bool,
     /// Spot-colour duplicate of the mark, placed on top of it.
     pub spot: SpotMark,
+    /// Spot-colour underlay behind the mark, as wide as the mark.
+    pub underlay: Underlay,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum UnderlayExtent {
+    /// Top edge of the sheet to the bottom edge of the sheet.
+    Page,
+    /// Trim top to trim bottom of the first copy.
+    Trim,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Underlay {
+    pub enabled: bool,
+    pub name: String,
+    pub tint: f64,
+    pub cmyk: [f64; 4],
+    pub overprint: bool,
+    /// How tall the underlay is.
+    pub extent: UnderlayExtent,
+}
+
+impl Default for Underlay {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            name: "white".into(),
+            tint: 100.0,
+            cmyk: [0.0, 0.0, 0.0, 10.0],
+            overprint: false,
+            extent: UnderlayExtent::Page,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -279,7 +317,9 @@ impl Default for Mark {
             anchor: MarkAnchor::TrimTop,
             reserve_space: false,
             cmyk: [0.0, 0.0, 0.0, 100.0],
+            overprint: true,
             spot: SpotMark::default(),
+            underlay: Underlay::default(),
         }
     }
 }
@@ -333,6 +373,11 @@ impl Config {
         }
         anyhow::ensure!((0.0..=100.0).contains(&self.mark.spot.tint), "mark.spot.tint must be 0-100");
         anyhow::ensure!(!self.mark.spot.name.trim().is_empty(), "mark.spot.name is empty");
+        for c in self.mark.underlay.cmyk {
+            anyhow::ensure!((0.0..=100.0).contains(&c), "mark.underlay.cmyk values must be 0-100");
+        }
+        anyhow::ensure!((0.0..=100.0).contains(&self.mark.underlay.tint), "mark.underlay.tint must be 0-100");
+        anyhow::ensure!(!self.mark.underlay.name.trim().is_empty(), "mark.underlay.name is empty");
         anyhow::ensure!(!self.output.file_name.trim().is_empty(), "output.file_name is empty");
         Ok(())
     }
@@ -388,6 +433,7 @@ anchor   = "trim_top"      # trim_top | bleed_top
 reserve_space = false      # false = mark is added outside the row after fitting
                            # true  = mark width is taken out of sheet.width first
 cmyk     = [0, 0, 0, 100]  # C, M, Y, K percent
+overprint = true           # eye mark overprints the white underlay
 
 [mark.spot]                # duplicate of the eye mark, in place, on top of it
 enabled   = true
@@ -395,6 +441,14 @@ name      = "die"          # spot colour (separation) name — case-sensitive
 tint      = 100            # percent
 cmyk      = [0, 100, 0, 0] # how the spot shows on screen / in proofs (magenta)
 overprint = true
+
+[mark.underlay]            # white underlay behind the mark, as wide as the mark
+enabled   = true
+name      = "white"        # spot colour (separation) name — case-sensitive
+tint      = 100            # percent
+cmyk      = [0, 0, 0, 10]  # how the spot shows on screen / in proofs (10% black)
+overprint = false
+extent    = "page"         # page = top edge to bottom edge of the sheet | trim = trim top to trim bottom
 
 [folders]                  # relative paths are relative to this hot folder
 output    = "../PDFOut"
@@ -424,6 +478,10 @@ mod tests {
         assert_eq!(parsed.folders.output, d.folders.output);
         assert_eq!(parsed.mark.spot.name, "die");
         assert!(parsed.mark.spot.overprint);
+        assert_eq!(parsed.mark.underlay.name, d.mark.underlay.name);
+        assert_eq!(parsed.mark.underlay.cmyk, [0.0, 0.0, 0.0, 10.0]);
+        assert!(parsed.mark.overprint && !parsed.mark.underlay.overprint);
+        assert_eq!(parsed.mark.underlay.extent, UnderlayExtent::Page);
         parsed.validate().unwrap();
     }
 

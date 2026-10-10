@@ -5,7 +5,9 @@ Hot-folder imposition in Rust. Drop a PDF into `PDFIn/` and it is imposed in a
 (configurable). The eye mark is ignored while centring. The sheet height is the
 PDF's bleed height. Then a 0.25" × 0.25" eye mark is placed just outside the left
 bleed of the first copy, with its top edge aligned to the trim top, and duplicated in place as an
-overprinting spot colour named "die" (shown as magenta).
+overprinting spot colour named "die" (shown as magenta). Behind it sits a "white" spot-colour
+underlay (shown as 10% black), as wide as the mark and running from the top edge of the sheet to the
+bottom edge.
 
 Pages are reused as vector Form XObjects (via `lopdf`), with no rasterising and no
 re-encoding, so jobs take milliseconds and output quality matches the input.
@@ -32,9 +34,43 @@ PDFTooling/
 └── PDFOut/             ← imposed files: <name>_<N>up.pdf
 ```
 
+## Watching several folders
+
+List the hot folders in `hotfolders.toml` (next to the program, or anywhere you like):
+
+```toml
+[[hotfolder]]
+path = "PDFIn"                      # uses PDFIn/impose.toml
+
+[[hotfolder]]
+path = "6RAutoImpose"               # uses 6RAutoImpose/impose.toml
+
+[[hotfolder]]
+path    = "/Volumes/Jobs/Labels/In" # absolute paths and network shares work
+config  = "shared/labels.toml"      # optional: share one settings file between folders
+name    = "Labels"                  # optional: label shown in the log
+enabled = false                     # optional: skip without deleting the entry
+```
+
+```bash
+./target/release/pdf-impose                      # uses ./hotfolders.toml if it exists, else ./PDFIn
+./target/release/pdf-impose hotfolders.toml      # or name the list explicitly
+./target/release/pdf-impose init hotfolders.toml # write a starter list
+```
+
+- Relative paths in the list are relative to the list file.
+- Each folder uses its own `impose.toml` unless `config` points elsewhere. Missing folders and
+  settings files are created with defaults. Paths inside a settings file (`output`, `processed`,
+  `error`) stay relative to each hot folder, even when the file is shared.
+- The list is re-read when it is saved: added folders start, removed or `enabled = false` folders
+  stop, and no restart is needed. If the list has a mistake, the error is logged and the folders
+  already running keep going.
+- Log lines are tagged with the folder, e.g. `[6RAutoImpose] ✔ card.pdf → card_4up.pdf`.
+
 Other commands:
 
 ```bash
+pdf-impose PDFIn                                        # watch just one folder
 pdf-impose init PDFIn                                   # just create folder + config
 pdf-impose impose in.pdf out.pdf -c PDFIn/impose.toml   # one-off, no watching
 RUST_LOG=debug pdf-impose PDFIn                         # more logging
@@ -117,6 +153,13 @@ Copy that `.exe` to the Windows PC. It runs exactly like the Option A build.
    die line comes out on its own separation. Change or switch it off under `[mark.spot]`
    (`name`, `tint`, `cmyk` = on-screen colour, `overprint`, `enabled`). In Acrobat, turn on
    *Output Preview* or *Overprint Preview* to see both marks.
+7. **White underlay**: drawn first, behind the mark, in the spot colour **white** (shown as 10% black).
+   Same x and width as the eye mark; height from the top edge of the sheet to the bottom edge
+   (`extent = "page"`), or from the first copy's trim top to trim bottom with `extent = "trim"`.
+   The black eye mark (`mark.overprint = true`) and the die mark both overprint it, so the white
+   ink still prints under them. Settings are under `[mark.underlay]` (same keys as `[mark.spot]`).
+
+   Paint order on the sheet: pages → white underlay → black eye mark (overprint) → die (overprint).
 
 All lengths in `impose.toml` use `units` (`in`, `mm` or `pt`).
 
@@ -134,7 +177,7 @@ Save as `~/Library/LaunchAgents/com.leom1.pdf-impose.plist`, then
   <key>Label</key><string>com.leom1.pdf-impose</string>
   <key>ProgramArguments</key><array>
     <string>/Users/leom1/Projects/PDFTooling/target/release/pdf-impose</string>
-    <string>/Users/leom1/Projects/PDFTooling/PDFIn</string>
+    <string>/Users/leom1/Projects/PDFTooling/hotfolders.toml</string>
   </array>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
@@ -145,7 +188,7 @@ Save as `~/Library/LaunchAgents/com.leom1.pdf-impose.plist`, then
 ### Windows: start automatically at login
 
 Simplest: press **Win+R**, type `shell:startup`, and put a shortcut there with
-Target `C:\PDFTooling\target\release\pdf-impose.exe C:\PDFTooling\PDFIn` and
+Target `C:\PDFTooling\target\release\pdf-impose.exe C:\PDFTooling\hotfolders.toml` and
 Start in `C:\PDFTooling`. Set **Run** to *Minimized* so the log window stays out of the way.
 
 To run it without anyone logged in, create a Task Scheduler task instead
