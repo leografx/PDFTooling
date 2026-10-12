@@ -1,0 +1,19 @@
+[package]
+name = "impose-settings"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.89"
+description = "Mac-style editor for sheet-impose job.toml and pdf-impose impose.toml files"
+
+[[bin]]
+name = "impose-settings"
+path = "src/main.rs"
+
+[dependencies]
+pdf-impose = { path = ".." }
+eframe = "0.36"
+egui-phosphor = { version = "0.14", features = ["fill"] }
+toml_edit = "0.25"
+toml = "1.1.6"
+rfd = "0.17"
+anyhow = "1.0.104"

@@ -1,11 +1,13 @@
 # PDFTooling
 
-Two imposition programs built from this project (`cargo build --release` builds both):
+Two imposition programs built from this project (`cargo build --release` builds both),
+plus a settings editor:
 
 | Program | Use it for |
 |---|---|
 | `pdf-impose` | Hot folders: single-row step-and-repeat on a fixed-width web/roll (eye mark, die, white underlay) |
 | `sheet-impose` | Sheet-fed and large-format: work styles, booklets, signatures, gang/cut & stack, marks, colour bars — see [sheet-impose](#sheet-impose) |
+| `Impose Settings` | Mac-style window for creating, editing and checking `job.toml` and `impose.toml` files — see [Impose Settings](#impose-settings-the-settings-editor) |
 
 ## pdf-impose
 
@@ -398,6 +400,50 @@ sheet-impose cards.pdf --set colorbar.file=bars/cmyk.pdf --set colorbar.position
 # posters on a 54" roll
 sheet-impose posters.pdf --set sheet.width=54 --set sheet.height=0 --set press.work_style=single
 ```
+
+# Impose Settings (the settings editor)
+
+A desktop app for writing and reading the two settings files without editing
+text: `job.toml` (sheet-impose) and `impose.toml` (pdf-impose hot folders).
+It lives in `gui/` and is built separately, so the command-line tools stay small.
+
+```bash
+# macOS: build the app (target/release/Impose Settings.app); --install copies it to ~/Applications
+gui/make-mac-app.sh --install
+
+# or just the program
+cargo build --release -p impose-settings
+./target/release/impose-settings jobs/job.toml     # a file
+./target/release/impose-settings PDFIn             # a hot folder: opens its impose.toml / job.toml
+```
+
+On Windows, `cargo build --release -p impose-settings` gives `target\release\impose-settings.exe`.
+
+What it does:
+
+- **Every option, grouped like System Settings.** A sidebar of sections (Sheet, Press, Binding,
+  Layout, Marks, Colour Bar, Hot Folder … for a job; Sheet, Layout, Eye Mark, Die Spot,
+  White Underlay, Hot Folder … for a row folder), each with icons, switches, pop-up menus and
+  segmented controls.
+- **Hover any setting** to see what it does, its TOML key and its default. Pop-up menu items
+  explain each choice too. Settings that don't apply right now (creep on a flat job, the lip on
+  a single-sided job …) are dimmed, and the tooltip says why.
+- **Your file stays yours.** Comments, blank lines and key order are kept; only the values you
+  change are rewritten, and trailing comments stay in their column. A blue dot marks settings
+  that are written in the file; the ↺ button removes one again so the tool's default applies.
+- **Checked with the real engine.** Every change is validated with sheet-impose's or pdf-impose's own
+  parser and rules. The status bar says *Valid* or shows the problem; click it to jump to
+  the setting.
+- **Units:** switching between in / mm / pt offers to convert every length so the layout keeps its size.
+- **Page map** (`pages.map`) has its own editor with live checking.
+- **Colour bar PDF:** *Choose…* picks the file and stores it relative to the job file.
+- Search (⌘F), undo/redo (⌘Z / ⇧⌘Z), save (⌘S), save as (⇧⌘S), open (⌘O), new (⌘N),
+  a TOML view of the file exactly as it will be saved, Show in Finder, and recent files.
+  Drop a file or a hot folder on the window to open it.
+- Follows the system light/dark appearance (`IMPOSE_SETTINGS_THEME=light` or `dark` to force one).
+
+If the window's buttons ever don't respond in the top strip on your macOS version, start it
+with `IMPOSE_SETTINGS_CLASSIC_TITLEBAR=1` to use a normal title bar.
 
 ## Run pdf-impose at login (optional)
 
