@@ -151,7 +151,16 @@ cargo build --release
 .\target\release\pdf-impose.exe PDFIn        # start watching
 ```
 
-This builds both `pdf-impose.exe` and `sheet-impose.exe`. Each program is a single `.exe`. Because of the `RUSTFLAGS` line, the C runtime is built
+This builds both `pdf-impose.exe` and `sheet-impose.exe`. For the settings editor, add:
+
+```powershell
+cargo build --release -p impose-settings
+.\target\release\impose-settings.exe                 # or double-click it in Explorer
+```
+
+`impose-settings.exe` is a normal windowed app (no console window) with its own icon; pin it to
+Start or the taskbar like any program. Hot folder settings open with
+`impose-settings.exe C:\PDFTooling\PDFIn`, or by dropping the folder on its window. Each program is a single `.exe`. Because of the `RUSTFLAGS` line, the C runtime is built
 into it, so you can copy just that file to other 64-bit Windows 10/11 PCs without installing anything
 else. (Skip that line and the PC running it needs the Microsoft Visual C++ Redistributable.)
 (On an ARM Windows PC, the same steps produce a native ARM build.)
@@ -162,7 +171,10 @@ else. (Skip that line and the PC running it needs the Microsoft Visual C++ Redis
 brew install mingw-w64
 rustup target add x86_64-pc-windows-gnu
 cargo build --release --target x86_64-pc-windows-gnu
-# → target/x86_64-pc-windows-gnu/release/pdf-impose.exe
+# → target/x86_64-pc-windows-gnu/release/pdf-impose.exe and sheet-impose.exe
+
+cargo build --release --target x86_64-pc-windows-gnu -p impose-settings
+# → target/x86_64-pc-windows-gnu/release/impose-settings.exe
 ```
 
 Copy that `.exe` to the Windows PC. It runs exactly like the Option A build.
@@ -417,7 +429,10 @@ cargo build --release -p impose-settings
 ./target/release/impose-settings PDFIn             # a hot folder: opens its impose.toml / job.toml
 ```
 
-On Windows, `cargo build --release -p impose-settings` gives `target\release\impose-settings.exe`.
+On Windows, `cargo build --release -p impose-settings` gives `target\release\impose-settings.exe`
+(see [Build & run (Windows)](#build--run-windows); it can also be cross-compiled on the Mac). The same
+app runs there with Segoe UI, a normal title bar and Ctrl instead of ⌘ for the shortcuts. Folder
+paths can be typed with backslashes; the editor escapes them correctly in the TOML.
 
 What it does:
 
@@ -437,7 +452,7 @@ What it does:
 - **Units:** switching between in / mm / pt offers to convert every length so the layout keeps its size.
 - **Page map** (`pages.map`) has its own editor with live checking.
 - **Colour bar PDF:** *Choose…* picks the file and stores it relative to the job file.
-- Search (⌘F), undo/redo (⌘Z / ⇧⌘Z), save (⌘S), save as (⇧⌘S), open (⌘O), new (⌘N),
+- Search (⌘F), undo/redo (⌘Z / ⇧⌘Z), save (⌘S), save as (⇧⌘S), open (⌘O), new (⌘N) — Ctrl on Windows —
   a TOML view of the file exactly as it will be saved, Show in Finder, and recent files.
   Drop a file or a hot folder on the window to open it.
 - Follows the system light/dark appearance (`IMPOSE_SETTINGS_THEME=light` or `dark` to force one).

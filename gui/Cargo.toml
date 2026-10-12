@@ -17,3 +17,6 @@ toml_edit = "0.25"
 toml = "1.1.6"
 rfd = "0.17"
 anyhow = "1.0.104"
+
+[build-dependencies]
+winresource = "0.1"   # Windows only: puts the app icon and version info into the .exe

@@ -93,6 +93,7 @@ pub fn install_fonts(ctx: &egui::Context) {
             "/System/Library/Fonts/SFNS.ttf",
             "/System/Library/Fonts/SFNSText.ttf",
             "/System/Library/Fonts/HelveticaNeue.ttc",
+            "C:\\Windows\\Fonts\\SegUIVar.ttf", // Segoe UI Variable (Windows 11)
             "C:\\Windows\\Fonts\\segoeui.ttf",
             "/usr/share/fonts/opentype/inter/Inter-Regular.otf",
             "/usr/share/fonts/truetype/inter/Inter-Regular.ttf",
@@ -114,19 +115,21 @@ pub fn install_fonts(ctx: &egui::Context) {
     };
 
     let mut bold_key = None;
+    let mut regular_is_variable = false;
     if let Some((_path, bytes)) = regular {
         let data = FontData::from_owned(bytes);
         let variable = data.variation_axes().iter().any(|a| &a.tag.to_be_bytes() == b"wght");
         fonts.font_data.insert("system".into(), Arc::new(data.clone()));
         fonts.families.entry(FontFamily::Proportional).or_default().insert(0, "system".into());
-        if variable && bold_file.is_none() {
-            // SF Pro is a variable font: its semibold is the same file at wght 600.
+        regular_is_variable = variable;
+        if variable {
+            // SF Pro and Segoe UI Variable are variable fonts: semibold is the same file at wght 600.
             let tweak = FontTweak { coords: VariationCoords::new([(b"wght", 600.0)]), ..Default::default() };
             fonts.font_data.insert("system-semibold".into(), Arc::new(data.tweak(tweak)));
             bold_key = Some("system-semibold".to_string());
         }
     }
-    if let Some((_p, bytes)) = bold_file {
+    if let Some((_p, bytes)) = bold_file.filter(|_| !regular_is_variable) {
         fonts.font_data.insert("system-semibold".into(), Arc::new(FontData::from_owned(bytes)));
         bold_key = Some("system-semibold".to_string());
     }

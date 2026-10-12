@@ -11,6 +11,7 @@
 mod app;
 mod doc;
 mod icon;
+mod iconpix;
 mod schema;
 mod theme;
 
@@ -22,7 +23,7 @@ fn main() -> eframe::Result {
     if let Some(i) = args.iter().position(|a| a == "--write-icon") {
         let out = args.get(i + 1).map(String::as_str).unwrap_or("icon.png");
         let size = args.get(i + 2).and_then(|s| s.parse().ok()).unwrap_or(1024);
-        std::fs::write(out, icon::png(size)).expect("writing icon");
+        std::fs::write(out, iconpix::png(size)).expect("writing icon");
         println!("wrote {out}");
         return Ok(());
     }

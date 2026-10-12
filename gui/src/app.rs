@@ -852,10 +852,10 @@ impl App {
                 }
                 ui.add_space(8.0);
                 let (can_redo, can_undo) = self.open.as_ref().map(|o| (!o.redo.is_empty(), !o.undo.is_empty())).unwrap_or((false, false));
-                if theme::tool_button(ui, I::ARROW_CLOCKWISE, can_redo).on_hover_text("Redo  ⇧⌘Z").clicked() {
+                if theme::tool_button(ui, I::ARROW_CLOCKWISE, can_redo).on_hover_text(keys("Redo  ⇧⌘Z", "Redo  Ctrl+Shift+Z")).clicked() {
                     self.open.as_mut().unwrap().redo();
                 }
-                if theme::tool_button(ui, I::ARROW_COUNTER_CLOCKWISE, can_undo).on_hover_text("Undo  ⌘Z").clicked() {
+                if theme::tool_button(ui, I::ARROW_COUNTER_CLOCKWISE, can_undo).on_hover_text(keys("Undo  ⌘Z", "Undo  Ctrl+Z")).clicked() {
                     self.open.as_mut().unwrap().undo();
                 }
                 ui.add_space(8.0);
@@ -866,13 +866,13 @@ impl App {
                 {
                     self.modal = Some(Modal::Unsaved(After::Revert));
                 }
-                if theme::tool_button(ui, I::FLOPPY_DISK, dirty).on_hover_text("Save  ⌘S   (Save As…  ⇧⌘S)").clicked() {
+                if theme::tool_button(ui, I::FLOPPY_DISK, dirty).on_hover_text(keys("Save  ⌘S   (Save As…  ⇧⌘S)", "Save  Ctrl+S   (Save As…  Ctrl+Shift+S)")).clicked() {
                     self.save(false, now, false);
                 }
-                if theme::tool_button(ui, I::FOLDER_SIMPLE, true).on_hover_text("Open a job.toml, impose.toml or hot folder  ⌘O").clicked() {
+                if theme::tool_button(ui, I::FOLDER_SIMPLE, true).on_hover_text(keys("Open a job.toml, impose.toml or hot folder  ⌘O", "Open a job.toml, impose.toml or hot folder  Ctrl+O")).clicked() {
                     self.guard(After::OpenDialog);
                 }
-                let new = theme::tool_button(ui, I::FILE_PLUS, true).on_hover_text("New settings file  ⌘N");
+                let new = theme::tool_button(ui, I::FILE_PLUS, true).on_hover_text(keys("New settings file  ⌘N", "New settings file  Ctrl+N"));
                 egui::Popup::menu(&new).show(|ui| {
                     ui.set_min_width(250.0);
                     if ui.button(theme::itext(I::BOOK_OPEN, "New Sheet Job (job.toml)", 13.0, p.text)).on_hover_text("Settings for sheet-impose: sheets, work styles, binding, marks, colour bar.").clicked() {
@@ -981,7 +981,7 @@ impl App {
                 });
                 resp.on_hover_text(tip).clicked()
             };
-            if big(ui, egui_phosphor::fill::FOLDER_OPEN, [0x1E, 0x90, 0xFF], "Open…", "A job.toml, impose.toml or hot folder", "Open an existing settings file (⌘O). You can also drop a file or folder on this window.") {
+            if big(ui, egui_phosphor::fill::FOLDER_OPEN, [0x1E, 0x90, 0xFF], "Open…", "A job.toml, impose.toml or hot folder", keys("Open an existing settings file (⌘O). You can also drop a file or folder on this window.", "Open an existing settings file (Ctrl+O). You can also drop a file or folder on this window.")) {
                 self.guard(After::OpenDialog);
             }
             ui.add_space(8.0);
@@ -1257,6 +1257,15 @@ impl App {
         }
     }
 
+}
+
+/// Shortcut text for this platform: ⌘ on macOS, Ctrl elsewhere.
+fn keys(mac: &'static str, other: &'static str) -> &'static str {
+    if cfg!(target_os = "macos") {
+        mac
+    } else {
+        other
+    }
 }
 
 fn unit_name(u: &str) -> &'static str {
